@@ -4,6 +4,58 @@ IPv4: `10.121.10.81/24`
 
 IPv6: `fd00:a:7900:a::51/64`
 
+
+## [Apache Traffic Server v10](https://trafficserver.apache.org/) on OpenSUSE 15.3
+
+### Getting Started
+After setting up OpenSUSE, the following packages should be installed with `zypper in`:
+- git
+- curl
+
+### Installing ATS
+ATS does not appear to be available in the OpenSUSE repositories, but can be compiled from source by following the following instructions modified from [the docs](https://docs.trafficserver.apache.org/en/latest/getting-started/index.en.html#installing-from-source-code).
+
+Install the following packages with `zypper in`:
+- libopenssl-devel
+- zlib-devel
+- pcre-devel
+- libcap-devel
+- make
+- flex
+- hwloc
+- lua
+- gcc
+- gcc-c++
+- libtool
+- pkgconfig
+
+The repository can be fetched and made into the working directory.
+```
+git clone https://git-wip-us.apache.org/repos/asf/trafficserver.git
+cd trafficserver
+```
+
+To select an alternate version, such as `9.2.x`, use the following command:
+```
+git fetch
+git switch 9.2.x
+```
+
+The following steps will compile and install ATS in `/opt/ts`:
+```
+autoreconf -if
+./configure --prefix=/opt/ts
+make
+make test
+make install
+```
+
+The installation can be verified with the following line. This step appears to fail when using the `clang` compiler.
+```
+sudo /opt/ts/bin/traffic_server -R 1
+```
+
+
 ## [Squid v4.17](http://www.squid-cache.org) on OpenBSD 6.9
 
 ### Proxy Banner (/etc/issue)
@@ -18,6 +70,10 @@ _/_/_/      _/_/_/    _/_/_/  _/    _/_/_/
 ```
 
 ### Getting Started
+After setting up OpenSUSE, the following packages should be installed with `pkg_add`:
+- git
+- vim (or neovim)
+
 
 ### Network Configuration (/etc/hostname.em1)
 ```
