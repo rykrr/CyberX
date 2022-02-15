@@ -55,6 +55,37 @@ The installation can be verified with the following line. This step appears to f
 sudo /opt/ts/bin/traffic_server -R 1
 ```
 
+## Setting up IPTABLES
+`TODO`: OpenSUSE uses the firewalld front-end, may need to bypass this.
+
+## Setting up a Forward Proxy
+
+## Enabling HTTPS
+Generate a server certificate in the `/opt/ts/etc/ssl`:
+```
+openssl req -x509 -newkey rsa:4096 -keyout /opt/ts/etc/ssl/keys/key.pem -out /opt/ts/etc/ssl/certs/cert.pem -sha256 -days 36
+```
+
+The `-nodes` (no DES) flag may be optionally specified to remove password protection for the certificate.
+
+Add the following lines in `records.configs`
+```
+CONFIG proxy.config.ssl.server.cert.path STRING /opt/ts/etc/ssl/certs/
+CONFIG proxy.config.ssl.server.private_key.path STRING /opt/ts/etc/ssl/keys/
+```
+
+## Enabling SSL Server Verification
+The following settings in `records.config` will enforce SSL verifaction of servers.
+```
+CONFIG proxy.config.ssl.client.verify.server.policy STRING ENFORCED
+CONFIG proxy.config.ssl.client.CA.cert.path STRING /etc/ssl/certs
+CONFIG proxy.config.ssl.client.CA.cert.filename STRING ca-bundle.pem
+```
+
+#### TODO
+- Test this configuration
+- Adding a custom certificate to the CA bundle.
+
 
 ## [Squid v4.17](http://www.squid-cache.org) on OpenBSD 6.9
 
