@@ -44,7 +44,7 @@ git switch 9.2.x
 The following steps will compile and install ATS in `/opt/ts`:
 ```
 autoreconf -if
-./configure --prefix=/opt/ts
+./configure --prefix=/opt/ts --enable-tproxy --enable-posix-cap
 make
 make test
 make install
@@ -55,15 +55,34 @@ The installation can be verified with the following line. This step appears to f
 sudo /opt/ts/bin/traffic_server -R 1
 ```
 
-## Setting up IPTABLES
+## Setting up networking and transparent proxy
 `TODO`: OpenSUSE uses the firewalld front-end, may need to bypass this.
+
+Networking can be set up using the `yast` interface. The test environment has 2 interfaces `eth0`, for accessing the machine, and `eth1`, for proxying traffic. Note that IPv4 and v6 forwarding must be enabled in the `Routing` tab.
+
+Once all the settings have been dialed in, iptables can be configured to divert traffic using the example in the docs:
+```
+#!/bin/bash
+
+iface=$iface
+
+# reflow client web traffic to TPROXY
+iptables -t mangle -A PREROUTING -i $iface -p tcp -m tcp --dport 80 -j TPROXY \
+   --on-ip 0.0.0.0 --on-port 3129 --tproxy-mark 1/1
+
+# Mark presumed return web traffic
+iptables -t mangle -A PREROUTING -i $iface -p tcp -m tcp --sport 80 -j MARK --set-mark 1/1
+
+ip rule add fwmark 1/1 table 1
+ip route add local 0.0.0.0/0 dev lo table 1
+```
 
 ## Setting up a Forward Proxy
 
 ## Enabling HTTPS
-Generate a server certificate in the `/opt/ts/etc/ssl`:
+Generate a server certificate in the `/opt/ts/etc/ssl` directory using the following command:
 ```
-openssl req -x509 -newkey rsa:4096 -keyout /opt/ts/etc/ssl/keys/key.pem -out /opt/ts/etc/ssl/certs/cert.pem -sha256 -days 36
+openssl req -x509 -newkey rsa:4096 -keyout /opt/ts/etc/ssl/keys/proxy_key.pem -out /opt/ts/etc/ssl/certs/proxy.pem -sha256 -days 36
 ```
 
 The `-nodes` (no DES) flag may be optionally specified to remove password protection for the certificate.
@@ -143,4 +162,9 @@ pass in quick on $ingress proto tcp \
 pass in quick on $egress proto tcp \
 	from any to ! $proxy port { 80, 443 } \
 	route-to $proxy
+
+# Allow all 
+pass out on $egress proto tcp \
+	from $proxy to any port { 80, 443 } nat-to $egress
+pass out
 ```
