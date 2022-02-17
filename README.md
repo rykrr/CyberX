@@ -60,7 +60,8 @@ OpenSUSE uses the firewalld front-end, however, all manuals and reference guides
 
 Networking can be set up using the `yast` interface. The test environment has 2 interfaces `eth0`, for accessing the machine, and `eth1`, for proxying traffic. Note that IPv4 and v6 forwarding must be enabled in the `Routing` tab.
 
-Once all the settings have been dialed in, iptables can be configured to divert traffic using the example in the docs:
+The following script, based on the example doc, will intercept packets and pass them along to the proxy port. Since packets 
+
 ```
 #!/bin/bash
 
