@@ -55,8 +55,8 @@ The installation can be verified with the following line. This step appears to f
 sudo /opt/ts/bin/traffic_server -R 1
 ```
 
-## Setting up networking and transparent proxy
-`TODO`: OpenSUSE uses the firewalld front-end, may need to bypass this.
+## Setting up networking and iptables routing
+OpenSUSE uses the firewalld front-end, however, all manuals and reference guides:
 
 Networking can be set up using the `yast` interface. The test environment has 2 interfaces `eth0`, for accessing the machine, and `eth1`, for proxying traffic. Note that IPv4 and v6 forwarding must be enabled in the `Routing` tab.
 
@@ -64,20 +64,54 @@ Once all the settings have been dialed in, iptables can be configured to divert 
 ```
 #!/bin/bash
 
-iface=$iface
+iface=eth0
+v4="10.121.10.81"
+v6="fd00:a:7900:a::51"
 
-# reflow client web traffic to TPROXY
-iptables -t mangle -A PREROUTING -i $iface -p tcp -m tcp --dport 80 -j TPROXY \
-   --on-ip 0.0.0.0 --on-port 3129 --tproxy-mark 1/1
+# /etc/iproute2/rt_tables: Arbitrary table number
+rt_table=64
 
-# Mark presumed return web traffic
-iptables -t mangle -A PREROUTING -i $iface -p tcp -m tcp --sport 80 -j MARK --set-mark 1/1
+intercept() {
+	local command=$1
+	local address=$2
+	local origin_port=$3
+	local proxy_port=$4
 
-ip rule add fwmark 1/1 table 1
-ip route add local 0.0.0.0/0 dev lo table 1
+	# Pass intercepted traffic to the local proxy port
+	$command -t mangle -A PREROUTING -i $iface \
+		! -s $address ! -d $address -p tcp -m tcp --dport $origin_port \
+		-j TPROXY --on-ip 0.0.0.0 --on-port $proxy_port --tproxy-mark 1/1
+
+	# Mark return traffic
+	$command -t mangle -A PREROUTING -i $iface \
+		-d $address -p tcp -m tcp --sport $origin_port \
+		-j MARK --set-mark 1/1
+}
+
+intercept iptables  $v4 80  8080
+intercept ip6tables $v6 80  8080
+intercept iptables  $v4 443 4433
+intercept ip6tables $v6 443 4433
+
+ip rule add fwmark 1/1 table $rt_table
+ip route add local 0.0.0.0/0 dev lo table $rt_table
 ```
 
-## Setting up a Forward Proxy
+## Forward HTTP Proxy
+The following two lines enable HTTP proxying
+```
+CONFIG proxy.config.http.server_ports STRING 8080:tr-in:ip-out=10.121.10.81
+CONFIG proxy.config.http.max_proxy_cycles INT 1
+```
+
+The port specification is as follows:
+- `<port>`: This is the port ATS will listen on
+- `tr-in`: Intercept packets that are not intended for the proxy
+- `ip-out=address`: The address to use when reaching out to remote (origin) servers
+
+For IPv6 configurations, the `ipv6` option must be specified and the address must be enclosed in square brackets.
+
+The `ssl` option enables ssl termination, making it possible for clients to connect using HTTPS. `https2` is supposedly enabled by default in ATSv10, but the option can be specified.
 
 ## Enabling HTTPS
 Generate a server certificate in the `/opt/ts/etc/ssl` directory using the following command:
@@ -105,6 +139,20 @@ CONFIG proxy.config.ssl.client.CA.cert.filename STRING ca-bundle.pem
 - Test this configuration
 - Adding a custom certificate to the CA bundle.
 
+## Enabling Verbose Output
+Adding the following lines will include 
+```
+CONFIG proxy.config.diags.output.alert STRING E
+CONFIG proxy.config.diags.output.emergency STRING E
+CONFIG proxy.config.diags.output.error STRING E
+CONFIG proxy.config.diags.output.fatal STRING E
+CONFIG proxy.config.diags.output.note STRING E
+CONFIG proxy.config.diags.output.status STRING E
+CONFIG proxy.config.diags.output.warning STRING E
+```
+
+The above options do not display details about requests
+```
 
 ## [Squid v4.17](http://www.squid-cache.org) on OpenBSD 6.9
 
@@ -147,7 +195,7 @@ pass in $logging quick on $iface proto tcp \
 	divert-to lo0 port 3130
 ```
 
-### Rules that need to be added to the firewall's pf.conf
+## Rules for the router's pf.conf (regardless of proxy system)
 ```
 egress = em0
 ingress = em1
