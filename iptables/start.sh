@@ -1,0 +1,15 @@
+#!/bin/bash
+
+source ./firewall.sh
+
+rst nat
+rst mangle
+
+add_chain iptables $addr4
+intercept iptables $addr4 80  8080
+intercept iptables $addr4 443 8443
+
+if [[ `ip rule list fwmark 1/1 | wc -l` -eq 0 ]]; then
+        ip rule add fwmark 1/1 table $rt_table
+        ip route add local 0.0.0.0/0 dev lo table $rt_table
+fi
