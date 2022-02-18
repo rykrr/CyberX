@@ -39,7 +39,7 @@ intercept() {
         $command -t nat -I BYPASS -p tcp --dport $origin_port -j SNAT --to $address
 }
 
-enable_bypass() {
+bypass() {
         local command=$1
         if ! $command -t nat -C POSTROUTING -j BYPASS 2>/dev/null; then
                 $command -t mangle -I PREROUTING -j ACCEPT
@@ -47,7 +47,7 @@ enable_bypass() {
         fi
 }
 
-disable_bypass() {
+clear_bypass() {
         local command=$1
         $command -t mangle -D PREROUTING -j ACCEPT 2>/dev/null
         $command -t nat -D POSTROUTING -j BYPASS 2>/dev/null
