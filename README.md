@@ -237,18 +237,12 @@ egress = em0
 ingress = em1
 proxy = "10.121.10.81"
 
-# [Forward Proxy] Route all webtraffic through the proxy
+# [Forward Proxy] Route all web traffic to the proxy
 pass in quick on $ingress proto tcp \
 	from ! $proxy to port { 80, 443 } \
 	route-to $proxy
 
-# [Reverse Proxy] Route all inbound traffic through the proxy (not yet tested)
-pass in quick on $egress proto tcp \
-	from any to ! $proxy port { 80, 443 } \
-	route-to $proxy
-
-# Allow all 
+# Allow all web traffic originating from the proxy out to the outside world
 pass out on $egress proto tcp \
 	from $proxy to any port { 80, 443 } nat-to $egress
-pass out
 ```
