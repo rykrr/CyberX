@@ -11,6 +11,8 @@ rt_table=64
 rst() {
         iptables -t $1 -F
         iptables -t $1 -X
+        ip6tables -t $1 -F
+        ip6tables -t $1 -X
 }
 
 add_chain() {
