@@ -2,7 +2,7 @@
 
 # Address information
 iface='eth1'
-addr4='10.121.10.82'
+addr4='10.121.10.81'
 addr6='fd00:a:7900:a::51'
 
 # /etc/iproute2/rt_tables: Arbitrary table number
