@@ -77,7 +77,11 @@ CONFIG proxy.config.admin.user_id STRING ts
 ```
 
 ## Setting up networking and iptables routing
-OpenSUSE uses the firewalld front-end, however, all manuals and reference guides:
+OpenSUSE uses the firewalld front-end, however, all manuals and reference guides use iptables directly. The default firewalld configuration appears to block icmp forwarding, resulting in an ICMP host unreachable. The rest of this cookbook assumes firewalld is disabled.
+
+```
+systemd disable --now firewalld
+```
 
 Networking can be set up using the `yast` interface. The test environment has 2 interfaces `eth0`, for accessing the machine, and `eth1`, for proxying traffic. Note that IPv4 and v6 forwarding must be enabled in the `Routing` tab.
 
