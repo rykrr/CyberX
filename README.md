@@ -34,18 +34,21 @@ Install the following packages with `sudo zypper in`:
 - pkgconfig
 
 The repository can be fetched and made into the working directory.
+
 ```
-git clone https://git-wip-us.apache.org/repos/asf/trafficserver.git
+git clone https://github.com/apache/trafficserver
 cd trafficserver
 ```
 
 To select an alternate version, such as `9.2.x`, use the following command:
+
 ```
 git fetch
 git switch 9.2.x
 ```
 
 The following steps will compile and install ATS in `/opt/ts`:
+
 ```
 autoreconf -if
 ./configure --prefix=/opt/ts --enable-tproxy --enable-posix-cap
@@ -55,6 +58,7 @@ make install
 ```
 
 The installation can be verified with the following line. This step appears to fail when using the `clang` compiler.
+
 ```
 sudo /opt/ts/bin/traffic_server -R 1
 ```
@@ -210,12 +214,14 @@ After setting up OpenSUSE, the following packages should be installed with `pkg_
 
 
 ### Network Configuration (/etc/hostname.em1)
+
 ```
 inet 10.121.10.81/24
 inet6 fd00:a:7900:a::51/64
 ```
 
 ### Routing Configuration (/etc/pf.conf)
+
 ```
 iface = "em1"
 logging = "log(all)"
@@ -232,6 +238,7 @@ pass in $logging quick on $iface proto tcp \
 ```
 
 ## Rules for the router's pf.conf (regardless of proxy system)
+
 ```
 egress = em0
 ingress = em1
