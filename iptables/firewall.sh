@@ -8,7 +8,7 @@ addr6='fd00:a:7900:a::51'
 # /etc/iproute2/rt_tables: Arbitrary table number
 rt_table=64
 
-rst() {
+clear_table() {
         iptables -t $1 -F
         iptables -t $1 -X
         ip6tables -t $1 -F
