@@ -2,8 +2,8 @@
 
 source ./firewall.sh
 
-rst nat
-rst mangle
+clear_table nat
+clear_table mangle
 
 add_chain iptables $addr4
 intercept iptables $addr4 80  8080
