@@ -5,6 +5,9 @@ iface='eth1'
 addr4='10.121.10.81'
 addr6='fd00:a:7900:a::51'
 
+zero4='0.0.0.0'
+zero6='::'
+
 # /etc/iproute2/rt_tables: Arbitrary table number
 rt_table=64
 
@@ -29,12 +32,13 @@ add_chain() {
 intercept() {
         local command=$1
         local address=$2
-        local origin_port=$3
-        local proxy_port=$4
+        local zero_address=$3
+        local origin_port=$4
+        local proxy_port=$5
 
         # Pass intercepted traffic to the local proxy port
         $command -t mangle -I PROXY -p tcp --dport $origin_port \
-                -j TPROXY --on-ip 0.0.0.0 --on-port $proxy_port --tproxy-mark 1/1
+                -j TPROXY --on-ip $zero_address --on-port $proxy_port --tproxy-mark 1/1
 
         $command -t nat -I BYPASS -p tcp --dport $origin_port -j SNAT --to $address
 }

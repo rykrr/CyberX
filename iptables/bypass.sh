@@ -1,4 +1,4 @@
 #!/bin/bash
-source ./firewall.sh
+source /opt/iptables/firewall.sh
 bypass iptables
 bypass ip6tables
