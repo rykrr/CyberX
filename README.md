@@ -63,6 +63,40 @@ The installation can be verified with the following line. This step appears to f
 sudo /opt/ts/bin/traffic_server -R 1
 ```
 
+## Starting trafficserver
+Traffic server is not set up for OpenSUSE 15 and relies on SysV scripts. Executing the following commands will ensure compatibility:
+
+```
+zypper in sysvinit-tools
+touch /etc/SuSE-release
+```
+
+To use trafficserver with systemd, the following unit file (`ats.service`) can be written to `/etc/systemd/system`:
+
+```
+[Unit]
+Description=Apache Traffic Server
+After=network.target
+
+[Service]
+Type=forking
+ExecStartPre=/opt/fw/start.sh
+ExecStart=/opt/ts/bin/trafficserver start
+ExecStartPost=/opt/fw/clear_bypass.sh
+PIDFile=/opt/ts/var/trafficserver/server.lock
+ExecStop=/opt/ts/bin/trafficserver stop
+ExecStopPost=/opt/fw/bypass.sh
+
+[Install]
+WantedBy=multi-user.target
+```
+
+It should now be possible to start the server at boot using `systemctl enable ats`.
+
+When started with systemd (at boot or explicitly `systemctl start ats`), this unit file will set the necessary firewall rules for proxying. In the event of an error, systemd will trigger the bypass script, allowing web traffic to continue flowing without going through the potentially failed proxy.
+
+Note that the bypass rules are cleared after startup in case the firewall start script starts with the bypass rules set as a failsafe.
+
 ## Setting up a dedicated trafficserver user
 ATS requires read access to the CA certificate and keys, however, ATS uses the `nobody` account by default. To provide access to ATS specifically, it is probably a good idea to create a new user.
 
@@ -117,6 +151,9 @@ intercept ip6tables $v6 443 8443
 ip rule add fwmark 1/1 table $rt_table
 ip route add local 0.0.0.0/0 dev lo table $rt_table
 ```
+
+The above script is a minimal example and has been since modified to be a helper script for initializing the firewall and bypassing the proxy if required. These scripts are included in the `fw` directory and are hard-coded to be placed in the `/opt/fw` directory.
+
 
 ## Forward HTTP Proxy
 Setting up a basic HTTP interception proxy is possible by using the `tr-in` option in the server port specification within `records.config`. Since the OpenBSD router is set to only route web traffic from the proxy to external networks, the `ip-out` option acts as a NAT by not spoofing the requesting address.

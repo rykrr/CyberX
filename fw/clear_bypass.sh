@@ -1,4 +1,4 @@
 #!/bin/bash
-source /opt/iptables/firewall.sh
+source /opt/fw/common.sh
 clear_bypass iptables
 clear_bypass ip6tables
