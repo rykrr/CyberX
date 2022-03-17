@@ -76,13 +76,13 @@ To use trafficserver with systemd, the following unit file (`ats.service`) can b
 ```
 [Unit]
 Description=Apache Traffic Server
-After=network.target
+After=network-pre.target
 
 [Service]
 Type=forking
 ExecStartPre=/opt/fw/start.sh
 ExecStart=/opt/ts/bin/trafficserver start
-ExecStartPost=/opt/fw/clear_bypass.sh
+#ExecStartPost=/opt/fw/clear_bypass.sh
 PIDFile=/opt/ts/var/trafficserver/server.lock
 ExecStop=/opt/ts/bin/trafficserver stop
 ExecStopPost=/opt/fw/bypass.sh
@@ -182,6 +182,8 @@ openssl req -x509 -days 365 -newkey rsa:2048 -keyout ca.key -out ca.crt
 # Serial file
 echo -e '1\n' > ca.srl
 ```
+
+This certificate must be readable by the user running trafficserver.
 
 The `-nodes` (no DES) flag may be optionally specified to remove password protection for the certificate. This seems to interfere with the certifier plugin (below), but may be circumvented by added an entry to the `ssl_multicert.config`. Unfortunately, this means the password has to be accessible somewhere on the system or specified at runtime.
 
