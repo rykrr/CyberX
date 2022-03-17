@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Address information
-iface='eth1'
+iface='eth0'
 addr4='10.121.10.81'
 addr6='fd00:a:7900:a::51'
 
