@@ -1,6 +1,7 @@
 # CyberX 2022 Web Proxy Cookbook (With PostEx Notes)
 
 Author: Ryan Kerr (ryan.kerr@queensu.ca)
+
 Date: 2022-04-14
 
 ## Table of Contents
@@ -8,9 +9,17 @@ Date: 2022-04-14
 
 ## What is the purpose of a web proxy in CyberX?
 
-There are two main reasons for the use of a web proxy: monitoring encrypted web traffic and filtering the contents of traffic. Most websites and browsers today use HTTPS as their default (if not only) protocol for communication. While this is great for securing communications and protecting information such as credentials, it also provides red team with the ability to establish covert channels with no way to inspect the contents. To provide blue with information about these connections, the proxy is used to man-in-the-middle HTTPS connections by presenting spoofed certificates to the client and forwarding traffic to the origin server. More details about this mechanism can be found in <todo: label>.
+There are two main reasons for the use of a web proxy: monitoring encrypted web traffic and filtering the contents of traffic. Most websites and browsers today use HTTPS as their default (if not only) protocol for communication. While this is great for securing communications and protecting information such as credentials, it also provides red team with the ability to establish covert channels with no way to inspect the contents. To provide blue with information about these connections, the proxy is used to man-in-the-middle HTTPS connections by presenting spoofed certificates to the client and forwarding traffic to the origin server. More details about this mechanism can be found in <todo: label>. With the web traffic being routed through and decrypted by the proxy, it becomes possible to filter and modify content at the application level and obscure the client address at the routing layer.
 
-## Apache Traffic Server
+Other benefits of using a web proxy include the ability to cache webpages to reduce outbound traffic and the ability to obscure the addresses of the clients
+
+### Reverse Proxies
+
+This cookbook only covers the use of *forward* proxies. Forward proxies are used to 
+
+## Why Apache Traffic Server?
+
+Apache Traffic Server (TS) was selected as the proxy of choice 
 
 ## Proxy Settings
 
