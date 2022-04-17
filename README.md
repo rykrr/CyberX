@@ -11,55 +11,58 @@ Date: 2022-04-14
 
 There are two main reasons for the use of a web proxy: monitoring encrypted web traffic and filtering the contents of traffic. Most websites and browsers today use HTTPS as their default (if not only) protocol for communication. While this is great for securing communications and protecting information such as credentials, it also provides red team with the ability to establish covert channels with no way to inspect the contents. To provide blue with information about these connections, the proxy is used to man-in-the-middle HTTPS connections by presenting spoofed certificates to the client and forwarding traffic to the origin server. More details about this mechanism can be found in <todo: label>. With the web traffic being routed through and decrypted by the proxy, it becomes possible to filter and modify content at the application level and obscure the client address at the routing layer.
 
-Other benefits of using a web proxy include the ability to cache webpages to reduce outbound traffic and the ability to obscure the addresses of the clients
-
 ### Reverse Proxies
 
-This cookbook only covers the use of *forward* proxies. Forward proxies are used to 
+This cookbook only covers the use of *forward* proxies. A forward proxy forwards traffic from clients out to the internet, wheras reverse proxies direct traffic from the internet to one or more servers. Reverse proxies are used to map URLs to endpoint servers on the network. These mappings may be one-to-many in the case of load-balancing multiple redundant servers. Reverse proxies may also be used for SSL termination where all traffic between a client and proxy are encrypted, but traffic between the proxy and server (that may otherwise not have any encryption support) remains unencrypted.
 
 ## Why Apache Traffic Server?
 
-Apache Traffic Server (TS) was selected as the proxy of choice 
+Apache Traffic Server (ATS) was selected as the proxy of choice for CyberX 2022 for its support for HTTP/2.0, the QUIC protocol, transparent proxy support, and certificate spoofing plugin. The biggest downside to ATS was that it was not tested for use with OpenBSD and was not readily available on OpenSUSE repositories, requiring it be compiled from scratch.
 
-## Proxy Settings
+Squid and mitmproxy were used in previous years, however, it was found that Squid has fallen behind in terms of protocol support and mitmproxy was far too unstable to use in production as-is. OpenBSD's included relayd appeared to have forward proxy capabilities, however, it did not appear to have the ability to spoof certificates or handle HTTP/2.0.
 
-IPv4: `10.121.10.81/24`
+## [Apache Traffic Server](https://trafficserver.apache.org/) 9.2 on OpenSUSE 15.3
 
-IPv6: `fd00:a:7900:a::51/64`
+This guide was written while ATS 9.2 was still in active development and may be out of date. Please refer to the official build guide and [README](https://github.com/apache/trafficserver/blob/master/README) if something goes awry.
 
+### Why version 9.2?
 
-## [Apache Traffic Server](https://trafficserver.apache.org/) on OpenSUSE 15.3
-
-### Getting Started
-After setting up OpenSUSE, the following packages should be installed with `sudo zypper in`:
-- git
-- curl
+We will be using ATS as a transparent proxy. It appears that this feature was available in prior versions of ATS, but the cycle detection mechanism used to prevent a proxy from talking to itself did not account for transparent mode. This resulted in almost half of the webpages showing "Cycle Detected" errors rather than the webpage. Version 9.2.x introduced a configuration option, `proxy.config.http.max_proxy_cycles`, to manually disable cycle detection.
 
 ### Installing ATS
-ATS does not appear to be available in the OpenSUSE repositories, but can be compiled from source by following the following instructions modified from [the docs](https://docs.trafficserver.apache.org/en/latest/getting-started/index.en.html#installing-from-source-code).
+ATS can be compiled from source by following the following instructions modified from [the docs](https://docs.trafficserver.apache.org/en/latest/getting-started/index.en.html#installing-from-source-code). It is recommended to perform these steps as a non-root user.
 
 Install the following packages with `sudo zypper in`:
+- git
+- curl
 - libopenssl-devel
 - zlib-devel
 - pcre-devel
 - libcap-devel
 - make
 - flex
-- hwloc
+- hwloc (this is the package missing from OpenBSD)
 - lua
 - gcc
-- gcc-c++
+- gcc-c++ (compiling with clang introduces failures in testing)
 - libtool
 - pkgconfig
 
-The repository can be fetched and made into the working directory.
+
+For convenience:
+
+```
+sudo zypper in git curl libopenss-devel zlib-devel pcre-devel libcap-devel make flex hwloc lua gcc gcc-c++ libtool pkgconfig
+```
+
+Clone the ATS repository and move into the directory.
 
 ```
 git clone https://github.com/apache/trafficserver
 cd trafficserver
 ```
 
-To select an alternate version, such as `9.2.x`, use the following command:
+Select version `9.2.x`:
 
 ```
 git fetch
@@ -70,53 +73,23 @@ The following steps will compile and install ATS in `/opt/ts`:
 
 ```
 autoreconf -if
-./configure --prefix=/opt/ts --enable-tproxy --enable-posix-cap
+./configure --prefix=/opt/ts --enable-tproxy --enable-posix-cap --enable-experimental-plugins
 make
 make test
-make install
+sudo make install
 ```
 
-The installation can be verified with the following line. This step appears to fail when using the `clang` compiler.
+The installation can be verified with the following line.
 
 ```
 sudo /opt/ts/bin/traffic_server -R 1
 ```
 
-## Starting trafficserver
-Traffic server is not set up for OpenSUSE 15 and relies on SysV scripts. Executing the following commands will ensure compatibility:
-
-```
-zypper in sysvinit-tools
-touch /etc/SuSE-release
-```
-
-To use trafficserver with systemd, the following unit file (`ats.service`) can be written to `/etc/systemd/system`:
-
-```
-[Unit]
-Description=Apache Traffic Server
-After=network-pre.target
-
-[Service]
-Type=forking
-ExecStartPre=/opt/fw/start.sh
-ExecStart=/opt/ts/bin/trafficserver start
-#ExecStartPost=/opt/fw/clear_bypass.sh
-PIDFile=/opt/ts/var/trafficserver/server.lock
-ExecStop=/opt/ts/bin/trafficserver stop
-ExecStopPost=/opt/fw/bypass.sh
-
-[Install]
-WantedBy=multi-user.target
-```
-
-It should now be possible to start the server at boot using `systemctl enable ats`.
-
-When started with systemd (at boot or explicitly `systemctl start ats`), this unit file will set the necessary firewall rules for proxying. In the event of an error, systemd will trigger the bypass script, allowing web traffic to continue flowing without going through the potentially failed proxy.
 
 Note that the bypass rules are cleared after startup in case the firewall start script starts with the bypass rules set as a failsafe.
 
 ## Setting up a dedicated trafficserver user
+
 ATS requires read access to the CA certificate and keys, however, ATS uses the `nobody` account by default. To provide access to ATS specifically, it is probably a good idea to create a new user.
 
 ```
@@ -130,46 +103,65 @@ CONFIG proxy.config.admin.user_id STRING ts
 ```
 
 ## Setting up networking and iptables routing
-OpenSUSE uses the firewalld front-end, however, all manuals and reference guides use iptables directly. The default firewalld configuration appears to block icmp forwarding, resulting in an ICMP host unreachable. The rest of this cookbook assumes firewalld is disabled.
+
+OpenSUSE uses the firewalld frontend, however, all manuals and reference guides use iptables directly. Additionally, The default firewalld configuration appears to block icmp forwarding, resulting in an ICMP host unreachable error. To avoid any issues, the rest of this cookbook assumes that firewalld is disabled.
 
 ```
 systemd disable --now firewalld
 ```
 
-Networking can be set up using the `yast` interface. The test environment has 2 interfaces `eth0`, for accessing the machine, and `eth1`, for proxying traffic. Note that IPv4 and v6 forwarding must be enabled in the `Routing` tab.
+Networking can be set up using `sudo yast`. Note that IPv4 and v6 forwarding must be enabled in the `Routing` tab.
 
-The following script, based on the example doc, will intercept packets and pass them along to the proxy port.
+To simplify the configuration of firewall rules, a set of scripts has been provided along with this cookbook for setting up the rules. This cookbook will briefly explain each of the functions found in the scripts.
+
+The `common.sh` script defines the following variables:
 
 ```
-#!/bin/bash
+# Address information
+iface='vlan10'
+addr4='10.121.10.81'
+addr6='fd00:a:7900:a::51'
 
-iface=eth0
-v4="10.121.10.81"
-v6="fd00:a:7900:a::51"
+zero4='0.0.0.0'
+zero6='::'
 
 # /etc/iproute2/rt_tables: Arbitrary table number
 rt_table=64
+```
+
+The `$rt_table` variable is used to identify the local routing table for ATS. This number can be any number between 0 and 255, but must be unique. You may optionally declare ``ats=64`` in the `/etc/iproute2/rt_tables` and then set `rt_table=ats` above.
+
+In order to keep the firewall rules clean and quickly bypass multiple rules, the script organizes all rules into 
+
+```
+add_chain() {
+        local command=$1
+        local address=$2
+        $command -t mangle -N PROXY
+        $command -t mangle -A PROXY -j RETURN
+        $command -t mangle -A PREROUTING -i $iface ! -s $address ! -d $address -j PROXY
+
+        $command -t nat -N BYPASS
+        $command -t nat -A BYPASS -j RETURN
+}
+```
 
 intercept() {
-	local command=$1
-	local address=$2
-	local origin_port=$3
-	local proxy_port=$4
+        local command=$1
+        local address=$2
+        local zero_address=$3
+	local protocol=$4
+        local origin_port=$5
+        local proxy_port=$6
 
-	# Pass intercepted traffic to the local proxy port
-	$command -t mangle -A PREROUTING -i $iface \
-		! -s $address ! -d $address -p tcp -m tcp --dport $origin_port \
-		-j TPROXY --on-ip 0.0.0.0 --on-port $proxy_port --tproxy-mark 1/1
+        # Pass intercepted traffic to the local proxy port
+        $command -t mangle -I PROXY -p $protocol --dport $origin_port \
+                -j TPROXY --on-ip $zero_address --on-port $proxy_port --tproxy-mark 1/1
+
+        $command -t nat -I BYPASS -p $protocol --dport $origin_port -j SNAT --to $address
 }
-
-intercept iptables  $v4 80  8080
-intercept ip6tables $v6 80  8080
-intercept iptables  $v4 443 8443
-intercept ip6tables $v6 443 8443
-
-ip rule add fwmark 1/1 table $rt_table
-ip route add local 0.0.0.0/0 dev lo table $rt_table
 ```
+
 
 The above script is a minimal example and has been since modified to be a helper script for initializing the firewall and bypassing the proxy if required. These scripts are included in the `fw` directory and are hard-coded to be placed in the `/opt/fw` directory.
 
@@ -256,31 +248,36 @@ CONFIG proxy.config.diags.output.warning STRING E
 ```
 
 
-## [Squid v4.17](http://www.squid-cache.org) on OpenBSD 6.9
+## Starting ATS
 
-### Proxy Banner (/etc/issue)
-```
-      _/_/_/                      _/        _/
-   _/          _/_/_/  _/    _/        _/_/_/
-    _/_/    _/    _/  _/    _/  _/  _/    _/
-       _/  _/    _/  _/    _/  _/  _/    _/
-_/_/_/      _/_/_/    _/_/_/  _/    _/_/_/
-               _/
-              _/
-```
+ATS can be manually started using `sudo /opt/ts/bin/traffic_server`. The provided management script, `/opt/ts/bin/trafficserver`, is based on an older version of OpenSuse, so it is recommended to use the server binary directly.
 
-### Getting Started
-After setting up OpenSUSE, the following packages should be installed with `pkg_add`:
-- git
-- vim (or neovim)
-
-
-### Network Configuration (/etc/hostname.em1)
+Since we will be running ATS is a production-like environment and it would be beneficial to start ATS on boot in the event the server restarts, the following systemd unit file can be used to manage ATS with sytsemctl. Write the following unit file (`ats.service`) to `/etc/systemd/system`:
 
 ```
-inet 10.121.10.81/24
-inet6 fd00:a:7900:a::51/64
+[Unit]
+Description=Apache Traffic Server
+After=network-pre.target
+
+[Service]
+Type=simple
+PIDFile=/opt/ts/var/trafficserver/server.lock
+ExecStartPre=/opt/fw/start.sh
+ExecStartPre=/opt/fw/bypass.sh
+ExecStart=/opt/ts/bin/traffic_server
+ExecStartPost=/opt/fw/clear_bypass.sh
+ExecStopPost=/opt/fw/bypass.sh
+
+[Install]
+WantedBy=multi-user.target
 ```
+
+Run `systemctl enable ats` to have ATS initialize on boot.
+
+When started with systemd (at boot or explicitly with `systemctl start ats`), this unit file will set the necessary firewall rules for proxying. In the event of an error, systemd will trigger the bypass script, allowing web traffic to continue flowing without going through the potentially failed proxy.
+
+
+## Routing traffic to the proxy
 
 ### Routing Configuration (/etc/pf.conf)
 
