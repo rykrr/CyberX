@@ -85,7 +85,6 @@ The installation can be verified with the following line.
 sudo /opt/ts/bin/traffic_server -R 1
 ```
 
-
 Note that the bypass rules are cleared after startup in case the firewall start script starts with the bypass rules set as a failsafe.
 
 ## Setting up a dedicated trafficserver user
@@ -131,7 +130,7 @@ rt_table=64
 
 The `$rt_table` variable is used to identify the local routing table for ATS. This number can be any number between 0 and 255, but must be unique. You may optionally declare ``ats=64`` in the `/etc/iproute2/rt_tables` and then set `rt_table=ats` above.
 
-In order to keep the firewall rules clean and quickly bypass multiple rules, the script organizes all rules into 
+In order to simplify firewall rules and quickly bypass multiple rules, the script organizes its rules into a new `PROXY` chain in the `mangle` table, and a `BYPASS` chain in the `nat` table. A packet may only enter the `PROXY` chain if it is a packet that is being forwarded by the proxy (ie. neither the source nor destination are the proxy itself). The `BYPASS` chain is used to NAT connections in the event the proxy is disabled. This chain is not activated by default, but may be activated by adding a jump rule in the `nat.POSTROUTING` chain (see `bypass` and `clear_bypass` in the included script).
 
 ```
 add_chain() {
@@ -146,6 +145,9 @@ add_chain() {
 }
 ```
 
+Now that chains have been established, they can be populated with rules for the individual ports. This command adds a rule to transparently forward packets to the local proxy software using the local routing table. When picked up by these TPROXY rules, only the port numbers are modified. In addition to these rules, a rule for the corresponding port is added to the `BYPASS` chain. When active, these rules will rewrite the packets 
+
+```
 intercept() {
         local command=$1
         local address=$2
