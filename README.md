@@ -87,7 +87,7 @@ sudo /opt/ts/bin/traffic_server -R 1
 
 Note that the bypass rules are cleared after startup in case the firewall start script starts with the bypass rules set as a failsafe.
 
-## Setting up a dedicated trafficserver user
+### Setting up a dedicated trafficserver user
 
 ATS requires read access to the CA certificate and keys, however, ATS uses the `nobody` account by default. To provide access to ATS specifically, it is probably a good idea to create a new user.
 
@@ -101,7 +101,7 @@ To tell ATS to use this new user, it must be specified in `records.config`:
 CONFIG proxy.config.admin.user_id STRING ts
 ```
 
-## Setting up networking and iptables routing
+### Setting up networking and iptables routing
 
 OpenSUSE uses the firewalld frontend, however, all manuals and reference guides use iptables directly. Additionally, The default firewalld configuration appears to block icmp forwarding, resulting in an ICMP host unreachable error. To avoid any issues, the rest of this cookbook assumes that firewalld is disabled.
 
@@ -182,17 +182,17 @@ clear_table mangle
 add_chain iptables $addr4
 intercept iptables $addr4 $zero4 tcp 80  8080
 intercept iptables $addr4 $zero4 tcp 443 8443
-intercept iptables $addr4 $zero4 udp 443 8444
+intercept iptables $addr4 $zero4 udp 443 8553
 bypass iptables
 
 add_chain ip6tables $addr6
-intercept ip6tables $addr6 $zero6 tcp 80  8080
-intercept ip6tables $addr6 $zero6 tcp 443 8443
-intercept ip6tables $addr6 $zero6 udp 443 8444
+intercept ip6tables $addr6 $zero6 tcp 80  8086
+intercept ip6tables $addr6 $zero6 tcp 443 8446
+intercept ip6tables $addr6 $zero6 udp 443 8556
 bypass ip6tables
 ```
 
-## Forward HTTP Proxy
+### Basic ATS Configuration
 Setting up a basic HTTP interception proxy is possible by using the `tr-in` option in the server port specification within `records.config`. Since the OpenBSD router is set to only route web traffic from the proxy to external networks, the `ip-out` option acts as a NAT by not spoofing the requesting address.
 
 ```
@@ -211,31 +211,29 @@ The second configuration line is a new feature added to ATS 9.2 to prevent the c
 The third line is for URL re-mapping used for reverse proxying and is set as required by default. Since ATS is only being used as a forward proxy, this should be disabled.
 
 
-## HTTPS and Certificate Authorities
-In order for the proxy to intercept HTTPS requests, the server must be able to generate fake certificates for each of the websites requested by the clients. To achieve this, ATS requires a signing certificate or Certificate Authority (CA). Since this certificate will only be used within RMCG BlueNet, this certificate can either be self-signed with the certificate distributed to all RMCG BlueNet hosts or be signed by the RMCG BlueNet certificate authority. In the former case, it is important to communicate this requirement to netops to ensure the certificate is installed on every machine. The latter case may not be possible if the upstream certificate has restrictions on the names that can be signed or the number of intermediate certificate authorities (pathlen).
+### HTTPS and Certificate Authorities
+In order for the proxy to intercept HTTPS requests, the server must be able to generate fake certificates for each of the websites requested by the clients. To achieve this, ATS requires a signing certificate or Certificate Authority (CA). Since this certificate will only be used within RMCG BlueNet, this certificate can either be self-signed with the certificate distributed to all RMCG BlueNet hosts or be signed by the RMCG BlueNet certificate authority. In the former case, it is important to communicate this requirement to netops to ensure the certificate is installed on every machine. The latter case may not be possible if the upstream certificate has restrictions on the names that can be signed or the number of intermediate certificate authorities (pathlen). White cell has indicated that they will not make any exceptions to restrictions imposed on certificates.
 
-For this, we will use a self-signed certificate
-
-```
-openssl req -x509 -days 365 -newkey rsa:2048 -keyout proxy.key -out proxy.crt -nodes
-
-# Serial file
-echo -e '1\n' > proxy.srl
-```
-
-This certificate must be readable by the user running trafficserver.
-
-The `-nodes` (no DES) is used to remove password protection for the certificate key. Using a key is recommended, but this necessitates the password being accessible somewhere on the system or entered manually at runtime. Version 9.2 with OpenSSL ignored the key_prompt
-
-If the `ca.crt` is not signed by a certificate authority in the trusted certificate list of the clients, this `ca.crt` must be distributed and manually added to the list.
-
-ATS doesn't appear to generate spoofed certificates by default and relies on a plugin, certifier, to do so. This plugin can be enabled and configured in `plugin.config` as follows:
+To generate a self-signed certificate for standalone distribution using EasyRSA:
 
 ```
-certifier.so --sign-cert /opt/ts/etc/ssl/ca.crt --sign-key /opt/ts/etc/ssl/ca.key --sign-serial /opt/ts/etc/ssl/ca.srl --store /opt/ts/etc/ssl/certs --max 1000
+EASYRSA=. ./easyrsa init-pki
+EASYRSA=. ./easyrsa build-ca
 ```
 
-It should be noted that the `store` and `max` parameters are required. Omitting these options will result in a segmentation fault with no helpful error message.
+If this certificate is to be signed by the upstream certificate authority, pass `subca` as an argument to `build-ca`
+
+This certificate must be readable by the user running trafficserver and all files must not contain any text prior to the `--BEGIN *--` lines. Failure to do so will result in ATS crashing with a SEGFAULT.
+
+The `nopass` option may be passed to `build-ca` to remove password protection for the certificate key. Using a key is recommended, but this necessitates the password being accessible somewhere on the system or entered manually at runtime. Version 9.2 with OpenSSL ignored the `ssl_key_diag` option in `ssl_multicert.config`, meaning a separate `expect` script had to be used to input the key passed by the admin user to root using `keyctl` (this script is included with this cookbook, but finding a way to make `ssl_key_diag` is recommended if at all possible)
+
+ATS uses the certifier plugin to spoof certificate names. This plugin can be enabled by adding the following line to `plugins.config`.
+
+```
+certifier.so --sign-cert /opt/ts/etc/ssl/ca.crt --sign-key /opt/ts/etc/ssl/private/ca.key --sign-serial /opt/ts/etc/ssl/ca.srl --store /opt/ts/etc/ssl/certs --max 10000
+```
+
+It should be noted that the `store` and `max` parameters are required. Omitting these options will result in a segmentation fault with no helpful error message. Setting this number high is recommended if there is enough space so that the generated certificates can be archived so that packet captures can be analyzed in the future.
 
 The following options can be added to `records.config` to enforce verification of remote HTTPS servers:
 
@@ -245,7 +243,7 @@ CONFIG proxy.config.ssl.client.CA.cert.path STRING /etc/ssl/certs
 CONFIG proxy.config.ssl.CA.cert.path STRING /etc/ssl/certs
 ```
 
-## Removing Headers
+### Removing Headers
 By default, ATS adds forward and server headers that expose the requesting client and server version. The following options can be set to prevent these headers from being included.
 
 ```
@@ -257,25 +255,16 @@ CONFIG proxy.config.http.insert_response_via_str INT 0
 CONFIG proxy.config.http.insert_age_in_response INT 0
 ```
 
-## Hiding User Agents
-This option could potentially come in useful, but may break compatibility with some websites.
+### Hiding User Agents
+This option could be potentially useful, but may break compatibility with some websites.
 
 ```
 CONFIG proxy.config.http.global_user_agent_header STRING ""
 ```
 
-## Enabling Verbose Output
+### Logging and Filtering Data
 
-```
-CONFIG proxy.config.diags.output.alert STRING E
-CONFIG proxy.config.diags.output.emergency STRING E
-CONFIG proxy.config.diags.output.error STRING E
-CONFIG proxy.config.diags.output.fatal STRING E
-CONFIG proxy.config.diags.output.note STRING E
-CONFIG proxy.config.diags.output.status STRING E
-CONFIG proxy.config.diags.output.warning STRING E
-```
-
+This is one area that wasn't covered to the extent that I had hoped this year. ATS has a number of facilities for logging data, including dumping all traffic to JSON or streaming data using ICAP. The exact method to use will depend on the amount of disk space available to the proxy, the types of logs needed, and the needs of the IDS lead and SOC team. In the future, the proxy lead should communicate with the IDS lead as early as possible to establish what to log and how to deliver the logs. If ICAP is used, a separate server will be required to read and filter this traffic without introducing large amounts of latency.
 
 ## Starting ATS
 
@@ -305,27 +294,12 @@ Run `systemctl enable ats` to have ATS initialize on boot.
 
 When started with systemd (at boot or explicitly with `systemctl start ats`), this unit file will set the necessary firewall rules for proxying. In the event of an error, systemd will trigger the bypass script, allowing web traffic to continue flowing without going through the potentially failed proxy.
 
+## Monitoring ATS
+A status script has been included to monitor the state of the traffic proxy. This script only monitors the state through systemd and iptables. Since it uses sudo to execute these commands, it requires sudo to be password-less in the sudoers file and is rather noisy in journalctl logs. I'd recommend replacing it with something that uses ATS's built-in monitoring commands or even integrating it with a dashboard, such as graphana.  
 
-## Routing traffic to the proxy
+![Status Panel](ats_status.png)
 
-### Routing Configuration (/etc/pf.conf)
-
-```
-iface = "em1"
-logging = "log(all)"
-
-# Divert intercepted HTTP (TCP 80) traffic to Squid
-pass in $logging quick on $iface proto tcp \
-	from ! $iface to ! $iface port 80 \
-	divert-to lo0 port 3129
-
-# Divert intercepted HTTPS (TCP 443) traffic to Squid
-pass in $logging quick on $iface proto tcp \
-	from ! $iface to ! $iface port 443 \
-	divert-to lo0 port 3130
-```
-
-## Rules for the router's pf.conf (regardless of proxy system)
+## Routing traffic to the proxy (for firewall lead)
 
 ```
 egress = em0
