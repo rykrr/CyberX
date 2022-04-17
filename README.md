@@ -1,4 +1,4 @@
-# CyberX 2022 Web Proxy Cookbook (With PostEx Notes)
+# CyberX 2022 Web Proxy Cookbook (PostX Version)
 
 Author: Ryan Kerr (ryan.kerr@queensu.ca)
 
