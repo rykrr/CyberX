@@ -128,7 +128,14 @@ zero6='::'
 rt_table=64
 ```
 
-The `$rt_table` variable is used to identify the local routing table for ATS. This number can be any number between 0 and 255, but must be unique. You may optionally declare ``ats=64`` in the `/etc/iproute2/rt_tables` and then set `rt_table=ats` above.
+The `$rt_table` variable is used to identify the local routing table for ATS. This number can be any number between 0 and 255, but must be unique. You may optionally declare ``ats=64`` in the `/etc/iproute2/rt_tables` and then set `rt_table=ats` above. The following rules initialize a local table to capture local proxy traffic:
+
+```
+if [[ `ip rule list fwmark 1/1 | wc -l` -eq 0 ]]; then
+        ip rule add fwmark 1/1 table $rt_table
+        ip route add local 0.0.0.0/0 dev lo table $rt_table
+fi
+```
 
 In order to simplify firewall rules and quickly bypass multiple rules, the script organizes its rules into a new `PROXY` chain in the `mangle` table, and a `BYPASS` chain in the `nat` table. A packet may only enter the `PROXY` chain if it is a packet that is being forwarded by the proxy (ie. neither the source nor destination are the proxy itself). The `BYPASS` chain is used to NAT connections in the event the proxy is disabled. This chain is not activated by default, but may be activated by adding a jump rule in the `nat.POSTROUTING` chain (see `bypass` and `clear_bypass` in the included script).
 
@@ -145,7 +152,7 @@ add_chain() {
 }
 ```
 
-Now that chains have been established, they can be populated with rules for the individual ports. This command adds a rule to transparently forward packets to the local proxy software using the local routing table. When picked up by these TPROXY rules, only the port numbers are modified. In addition to these rules, a rule for the corresponding port is added to the `BYPASS` chain. When active, these rules will rewrite the packets 
+Now that chains have been established, they can be populated with rules for the individual ports. This command adds a rule to transparently forward packets to the local proxy software using the local routing table. When picked up by these TPROXY rules, only the port numbers are modified. In addition to these rules, a rule for the corresponding port is added to the `BYPASS` chain. When active, these rules will source-NAT the packets (ie. rewrite the packet's source address and forward the response to the sender) instead of using the proxy software.
 
 ```
 intercept() {
@@ -164,41 +171,61 @@ intercept() {
 }
 ```
 
+These functions are used in `/opt/fw/start.sh` to initialize the firewall tables:
 
-The above script is a minimal example and has been since modified to be a helper script for initializing the firewall and bypassing the proxy if required. These scripts are included in the `fw` directory and are hard-coded to be placed in the `/opt/fw` directory.
+```
+source /opt/fw/common.sh
 
+clear_table nat
+clear_table mangle
+
+add_chain iptables $addr4
+intercept iptables $addr4 $zero4 tcp 80  8080
+intercept iptables $addr4 $zero4 tcp 443 8443
+intercept iptables $addr4 $zero4 udp 443 8444
+bypass iptables
+
+add_chain ip6tables $addr6
+intercept ip6tables $addr6 $zero6 tcp 80  8080
+intercept ip6tables $addr6 $zero6 tcp 443 8443
+intercept ip6tables $addr6 $zero6 udp 443 8444
+bypass ip6tables
+```
 
 ## Forward HTTP Proxy
 Setting up a basic HTTP interception proxy is possible by using the `tr-in` option in the server port specification within `records.config`. Since the OpenBSD router is set to only route web traffic from the proxy to external networks, the `ip-out` option acts as a NAT by not spoofing the requesting address.
 
 ```
-CONFIG proxy.config.http.server_ports STRING 8080:tr-in:ip-out=10.121.10.81
+CONFIG proxy.config.http.server_ports STRING 8080:tr-in:ip-out=10.121.10.81 8086:ipv6:tr-in:ip-out=[fd00:a:7900:a::51] 8443:ssl:tr-in:ip-out=10.121.10.81 8446:ssl:ipv6:tr-in:ip-out=[fd00:a:7900:a::51] 8553:quic:tr-in:ip-out=10.121.10.81 8556:ipv6:quic:tr-in:ip-out=[fd00:a:7900:a::51]
+
 CONFIG proxy.config.http.max_proxy_cycles INT 1
 CONFIG proxy.config.url_remap.remap_required INT 0
 ```
 
-For some reason, leaving `max_proxy_cycles` as-is tends to result in certain sites being mis-identified as a direct cycle and not being reachable. Setting this to 1 disables the cycle check and subverts this issues.
+(Note: there are options that supposedly make specifying the address in `ip-out` redundant, but it didn't work as expected during testing)
 
-URL re-mapping is used for reverse proxying and is set as required by default. Since ATS is being used as a forward proxy, this requirement must be disabled.
+For `quic`, a certificate authority *must* be specified in `/opt/ts/etc/trafficserver/ssl_multicert.config`.
 
-For IPv6 configurations, the `ipv6` option must be specified and the address must be enclosed in square brackets.
+The second configuration line is a new feature added to ATS 9.2 to prevent the cycle detection mechanism from blocking connections that would end up back at the proxy. Since the firewall rules and routing rules on the network are set up in such a way that a cycle should be impossible, this check is unecessary (and is oftentimes wrong when in transparent mode). Disabling it ensures clients won't see a "Proxy Cycle Detected" error message.
 
-## Forward HTTPS Proxy
-HTTPS ports are specified in the same way as HTTP ports, but with the added `ssl` option. By default, HTTPS ports support both HTTP 1.0 and 2.0.
+The third line is for URL re-mapping used for reverse proxying and is set as required by default. Since ATS is only being used as a forward proxy, this should be disabled.
 
-In order for the proxy to intercept HTTPS requests, the server must be able to generate fake certificates for each of the websites requested by the clients. To achieve this, trafficserver requires a self-signed certificate authority.
+
+## HTTPS and Certificate Authorities
+In order for the proxy to intercept HTTPS requests, the server must be able to generate fake certificates for each of the websites requested by the clients. To achieve this, ATS requires a signing certificate or Certificate Authority (CA). Since this certificate will only be used within RMCG BlueNet, this certificate can either be self-signed with the certificate distributed to all RMCG BlueNet hosts or be signed by the RMCG BlueNet certificate authority. In the former case, it is important to communicate this requirement to netops to ensure the certificate is installed on every machine. The latter case may not be possible if the upstream certificate has restrictions on the names that can be signed or the number of intermediate certificate authorities (pathlen).
+
+For this, we will use a self-signed certificate
 
 ```
-# /opt/ts/etc/ssl
-openssl req -x509 -days 365 -newkey rsa:2048 -keyout ca.key -out ca.crt
+openssl req -x509 -days 365 -newkey rsa:2048 -keyout proxy.key -out proxy.crt -nodes
 
 # Serial file
-echo -e '1\n' > ca.srl
+echo -e '1\n' > proxy.srl
 ```
 
 This certificate must be readable by the user running trafficserver.
 
-The `-nodes` (no DES) flag may be optionally specified to remove password protection for the certificate. This seems to interfere with the certifier plugin (below), but may be circumvented by added an entry to the `ssl_multicert.config`. Unfortunately, this means the password has to be accessible somewhere on the system or specified at runtime.
+The `-nodes` (no DES) is used to remove password protection for the certificate key. Using a key is recommended, but this necessitates the password being accessible somewhere on the system or entered manually at runtime. Version 9.2 with OpenSSL ignored the key_prompt
 
 If the `ca.crt` is not signed by a certificate authority in the trusted certificate list of the clients, this `ca.crt` must be distributed and manually added to the list.
 
